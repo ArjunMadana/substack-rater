@@ -77,6 +77,20 @@ function migrate(database: DatabaseSync) {
 
     CREATE INDEX IF NOT EXISTS email_senders_trust_status_idx ON email_senders(trust_status);
 
+    CREATE TABLE IF NOT EXISTS ignored_gmail_messages (
+      message_id TEXT PRIMARY KEY,
+      sender_email TEXT,
+      subject TEXT,
+      reason TEXT,
+      ignored_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS app_state (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS claims (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       article_id INTEGER NOT NULL REFERENCES articles(id) ON DELETE CASCADE,

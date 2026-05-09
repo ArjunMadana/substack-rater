@@ -158,7 +158,7 @@ export function upsertArticle(input: ArticleInsert) {
         source, is_premium_preview, needs_full_text, access_level, full_text_status,
         detection_evidence, gmail_message_id, email_sender, email_labels, quality_score,
         relevance_score, importance_score, ranking_reason
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       input.publicationId,
@@ -252,6 +252,13 @@ export function listClaimsForArticle(articleId: number) {
 }
 
 export function insertClaim(input: Omit<Claim, 'id' | 'createdAt' | 'updatedAt' | 'status' | 'outcomeNotes'>) {
+  const existing = getDb()
+    .prepare('SELECT * FROM claims WHERE article_id = ? AND claim_text = ?')
+    .get(input.articleId, input.claimText) as Record<string, unknown> | undefined;
+  if (existing) {
+    return mapClaim(existing);
+  }
+
   const result = getDb()
     .prepare(
       `INSERT INTO claims (
@@ -361,6 +368,25 @@ export function markEmailSenderImported(email: string, importedAt: string | null
     .run(importedAt, email.toLowerCase());
 }
 
+export function ignoreGmailMessage(input: { messageId: string; senderEmail?: string | null; subject?: string | null; reason?: string | null }) {
+  getDb()
+    .prepare(
+      `INSERT INTO ignored_gmail_messages (message_id, sender_email, subject, reason, ignored_at)
+       VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+       ON CONFLICT(message_id) DO UPDATE SET
+         sender_email = COALESCE(excluded.sender_email, sender_email),
+         subject = COALESCE(excluded.subject, subject),
+         reason = COALESCE(excluded.reason, reason),
+         ignored_at = CURRENT_TIMESTAMP`
+    )
+    .run(input.messageId, input.senderEmail ?? null, input.subject ?? null, input.reason ?? null);
+}
+
+export function isGmailMessageIgnored(messageId: string) {
+  const row = getDb().prepare('SELECT message_id FROM ignored_gmail_messages WHERE message_id = ?').get(messageId);
+  return Boolean(row);
+}
+
 export function listCoverageItems(staleDays = 21) {
   const rows = getDb()
     .prepare(
@@ -393,4 +419,21 @@ export function listCoverageItems(staleDays = 21) {
     )
     .all(staleDays, staleDays) as Record<string, unknown>[];
   return rows.map(mapCoverageItem);
+}
+
+export function getAppState(key: string) {
+  const row = getDb().prepare('SELECT value FROM app_state WHERE key = ?').get(key) as
+    | { value: string }
+    | undefined;
+  return row?.value ?? null;
+}
+
+export function setAppState(key: string, value: string) {
+  getDb()
+    .prepare(
+      `INSERT INTO app_state (key, value, updated_at)
+       VALUES (?, ?, CURRENT_TIMESTAMP)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`
+    )
+    .run(key, value);
 }

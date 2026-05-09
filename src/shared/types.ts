@@ -98,6 +98,7 @@ export interface GmailCandidate {
   publicationName: string | null;
   trustStatus: SenderTrustStatus;
   importStatus: 'candidate' | 'ignored' | 'already_imported';
+  messageIgnored: boolean;
   reason: string;
 }
 

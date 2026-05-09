@@ -18,6 +18,7 @@ import {
   createGmailAuthUrl,
   getGmailStatus,
   handleGmailCallback,
+  ignoreGmailCandidate,
   importGmailMessage,
   searchGmailCandidates
 } from './services/gmail.js';
@@ -137,7 +138,8 @@ app.get('/api/gmail/candidates', async (request, response, next) => {
         after: typeof request.query.after === 'string' ? request.query.after : undefined,
         before: typeof request.query.before === 'string' ? request.query.before : undefined,
         sender: typeof request.query.sender === 'string' ? request.query.sender : undefined,
-        maxResults: request.query.maxResults ? Number(request.query.maxResults) : undefined
+        maxResults: request.query.maxResults ? Number(request.query.maxResults) : undefined,
+        fullScan: request.query.fullScan === '1'
       })
     );
   } catch (error) {
@@ -148,6 +150,20 @@ app.get('/api/gmail/candidates', async (request, response, next) => {
 app.post('/api/gmail/import/:messageId', async (request, response, next) => {
   try {
     response.json(await importGmailMessage(request.params.messageId));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/gmail/ignore/:messageId', (request, response, next) => {
+  try {
+    const body = z
+      .object({
+        senderEmail: z.string().optional(),
+        subject: z.string().optional()
+      })
+      .parse(request.body ?? {});
+    response.json(ignoreGmailCandidate({ messageId: request.params.messageId, ...body }));
   } catch (error) {
     next(error);
   }

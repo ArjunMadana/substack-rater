@@ -19,14 +19,21 @@ export interface AiProvider {
 
 export class HeuristicAiProvider implements AiProvider {
   async extractClaims(input: { title: string; text: string }) {
+    const rejectPattern =
+      /\b(not financial advice|do your own research|unsubscribe|view this post|positions will change|contact me|subscribe|share\?)\b/i;
+    const claimPattern =
+      /\b(will|should|expect|expects|forecast|target|upside|downside|likely|positioned|shortage|superior|inferior|higher|lower|margin|yield|capacity|supply|demand|gross margins?|revenue|earnings|valuation|risk)\b/i;
     const sentences = input.text
       .split(/(?<=[.!?])\s+/)
       .map((sentence) => sentence.trim())
-      .filter(Boolean);
+      .filter((sentence) => sentence.length >= 80 && sentence.length <= 700)
+      .filter((sentence) => !rejectPattern.test(sentence));
 
-    const candidates = sentences.filter((sentence) =>
-      /\b(will|should|expect|expects|forecast|target|upside|downside|could|likely|by 20\d{2})\b/i.test(sentence)
-    );
+    const candidates = sentences.filter((sentence) => {
+      const hasTicker = /\$[A-Z]{1,5}\b/.test(sentence);
+      const hasDate = /\b(20\d{2}|Q[1-4]|next quarter|this year|next year)\b/i.test(sentence);
+      return claimPattern.test(sentence) && (hasTicker || hasDate || /\b(company|stock|market|customer|management|platform|technology|supply)\b/i.test(sentence));
+    });
 
     return candidates.slice(0, 8).map((sentence) =>
       extractedClaimSchema.parse({

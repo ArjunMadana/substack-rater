@@ -10,6 +10,9 @@ interface GmailStatus {
   connected: boolean;
   scope: string;
   grantedScope: string | null;
+  accountEmail: string | null;
+  lastScanAt: string | null;
+  lastScanNewestMessageAt: string | null;
   excludesSpamTrash: boolean;
   redirectUri: string;
 }
@@ -242,16 +245,18 @@ function InboxView({
     window.location.href = result.url;
   }
 
-  async function search() {
+  async function search(mode: 'new' | 'full' = 'new') {
     setLoading(true);
     try {
       const params = new URLSearchParams();
       if (after) params.set('after', after);
       if (before) params.set('before', before);
+      if (mode === 'full') params.set('fullScan', '1');
+      params.set('maxResults', mode === 'full' ? '2000' : '1000');
       const result = await api<GmailCandidate[]>(`/api/gmail/candidates?${params.toString()}`);
       setCandidates(result);
       await refreshInbox();
-      setMessage(`Found ${result.length} Gmail candidate${result.length === 1 ? '' : 's'}.`);
+      setMessage(`Scanned Gmail and found ${result.length} candidate${result.length === 1 ? '' : 's'}.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Gmail search failed');
     } finally {
@@ -260,7 +265,7 @@ function InboxView({
   }
 
   async function trust(email: string, trustStatus: EmailSender['trustStatus'], publicationId?: string) {
-    await api(`/api/email-senders/${encodeURIComponent(email)}`, {
+    const updated = await api<EmailSender>(`/api/email-senders/${encodeURIComponent(email)}`, {
       method: 'PATCH',
       body: JSON.stringify({
         trustStatus,
@@ -269,17 +274,57 @@ function InboxView({
     });
     await refreshInbox();
     setCandidates((items) =>
-      items.map((item) => (item.senderEmail === email ? { ...item, trustStatus, reason: `Sender marked ${trustStatus}` } : item))
+      items.map((item) =>
+        item.senderEmail === email
+          ? {
+              ...item,
+              trustStatus: updated.trustStatus,
+              reason: `Sender marked ${updated.trustStatus}`,
+              importStatus: updated.trustStatus === 'ignored' ? 'ignored' : item.importStatus
+            }
+          : item
+      )
     );
+    setMessage(`${email} marked ${updated.trustStatus}.`);
   }
 
   async function importMessage(messageId: string) {
-    await api(`/api/gmail/import/${messageId}`, { method: 'POST' });
+    const article = await api<Article>(`/api/gmail/import/${messageId}`, { method: 'POST' });
+    try {
+      await api(`/api/articles/${article.id}/extract-claims`, { method: 'POST' });
+      setMessage(`Imported and analyzed: ${article.title}`);
+    } catch {
+      setMessage(`Imported to Feed: ${article.title}`);
+    }
     await onChanged();
     setCandidates((items) =>
       items.map((item) => (item.messageId === messageId ? { ...item, importStatus: 'already_imported' } : item))
     );
   }
+
+  async function ignoreMessage(candidate: GmailCandidate) {
+    await api(`/api/gmail/ignore/${candidate.messageId}`, {
+      method: 'POST',
+      body: JSON.stringify({
+        senderEmail: candidate.senderEmail,
+        subject: candidate.subject
+      })
+    });
+    setCandidates((items) =>
+      items.map((item) =>
+        item.messageId === candidate.messageId
+          ? { ...item, messageIgnored: true, importStatus: 'already_imported', reason: 'Email ignored manually' }
+          : item
+      )
+    );
+    setMessage(`Ignored email: ${candidate.subject}`);
+  }
+
+  const groupedSenders = {
+    trusted: senders.filter((sender) => sender.trustStatus === 'trusted'),
+    pending: senders.filter((sender) => sender.trustStatus === 'pending'),
+    ignored: senders.filter((sender) => sender.trustStatus === 'ignored')
+  };
 
   return (
     <section>
@@ -288,25 +333,38 @@ function InboxView({
           <h2>Subscription Inbox</h2>
           <p>Use Gmail as ground truth for subscribed Substack articles. Spam and Trash are always excluded.</p>
         </div>
-        {status?.connected ? <button onClick={search}>{loading ? 'Searching...' : 'Find Emails'}</button> : <button onClick={connect}>Connect Gmail</button>}
+        {status?.connected ? (
+          <button onClick={() => search('new')}>{loading ? 'Scanning...' : 'Scan New'}</button>
+        ) : (
+          <button onClick={connect}>Connect Gmail</button>
+        )}
       </header>
       <div className="statusGrid">
         <Metric label="Configured" value={status?.configured ? 1 : 0} />
         <Metric label="Connected" value={status?.connected ? 1 : 0} />
         <Metric label="Spam/Trash Excluded" value={status?.excludesSpamTrash ? 1 : 0} />
       </div>
+      {status?.accountEmail && (
+        <div className="notice subtle">
+          Connected Gmail account: <strong>{status.accountEmail}</strong>
+          {status.lastScanNewestMessageAt ? ` · next scan starts after ${status.lastScanNewestMessageAt}` : ' · no scan history yet'}
+        </div>
+      )}
       {!status?.configured && (
         <p className="notice">Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to .env, then restart the server.</p>
       )}
       <div className="notice subtle">
-        Date fields are optional. Blank search defaults to the last 6 months and includes normal Gmail categories such
-        as Promotions while excluding Spam and Trash.
+        Scan New uses the newest previously scanned email as its starting point. Full Rescan walks the normal mailbox
+        broadly, including Promotions, while excluding Spam and Trash.
       </div>
       <div className="formLine inboxFilters">
         <input type="date" value={after} onChange={(event) => setAfter(event.target.value)} aria-label="After date" />
         <input type="date" value={before} onChange={(event) => setBefore(event.target.value)} aria-label="Before date" />
-        <button onClick={search} disabled={!status?.connected || loading}>
-          Search Gmail
+        <button onClick={() => search('new')} disabled={!status?.connected || loading}>
+          Scan New
+        </button>
+        <button onClick={() => search('full')} disabled={!status?.connected || loading}>
+          Full Rescan
         </button>
       </div>
       {status?.grantedScope && <p className="empty">Granted scope: {status.grantedScope}</p>}
@@ -324,39 +382,61 @@ function InboxView({
               </small>
               {candidate.articleUrl && <small>{candidate.articleUrl}</small>}
             </div>
-            <select
-              defaultValue=""
-              onChange={(event) => trust(candidate.senderEmail, 'trusted', event.target.value || undefined)}
-              aria-label="Trust sender and map publication"
-            >
-              <option value="">Trust sender...</option>
-              {publications.map((publication) => (
-                <option value={publication.id} key={publication.id}>
-                  {publication.name}
-                </option>
-              ))}
-            </select>
-            <button onClick={() => trust(candidate.senderEmail, 'ignored')}>Ignore</button>
-            <button disabled={candidate.importStatus === 'already_imported'} onClick={() => importMessage(candidate.messageId)}>
-              {candidate.importStatus === 'already_imported' ? 'Imported' : 'Import'}
-            </button>
+            <span className={`pill ${candidate.messageIgnored ? 'ignored' : candidate.trustStatus}`}>
+              {candidate.messageIgnored ? 'email ignored' : candidate.trustStatus}
+            </span>
+            <div className="candidateActions">
+              <button disabled={candidate.trustStatus === 'trusted'} onClick={() => trust(candidate.senderEmail, 'trusted')}>
+                Trust
+              </button>
+              <select
+                defaultValue=""
+                disabled={candidate.trustStatus === 'ignored'}
+                onChange={(event) => trust(candidate.senderEmail, 'trusted', event.target.value || undefined)}
+                aria-label="Trust sender and map publication"
+              >
+                <option value="">Map publication...</option>
+                {publications.map((publication) => (
+                  <option value={publication.id} key={publication.id}>
+                    {publication.name}
+                  </option>
+                ))}
+              </select>
+              <button disabled={candidate.trustStatus === 'ignored'} onClick={() => trust(candidate.senderEmail, 'ignored')}>
+                Ignore sender
+              </button>
+            </div>
+            <div className="candidateActions compact">
+              <button disabled={candidate.importStatus === 'already_imported' || candidate.importStatus === 'ignored'} onClick={() => importMessage(candidate.messageId)}>
+                {candidate.importStatus === 'already_imported' ? 'Imported' : 'Import + analyze'}
+              </button>
+              <button disabled={candidate.messageIgnored || candidate.importStatus === 'already_imported'} onClick={() => ignoreMessage(candidate)}>
+                Ignore email
+              </button>
+            </div>
           </div>
         ))}
         {!candidates.length && <p className="empty">Connect Gmail and search for Substack candidates.</p>}
       </div>
       <h3>Known Senders</h3>
+      <div className="senderSummary">
+        <span className="pill trusted">Trusted {groupedSenders.trusted.length}</span>
+        <span className="pill pending">Pending {groupedSenders.pending.length}</span>
+        <span className="pill ignored">Ignored {groupedSenders.ignored.length}</span>
+      </div>
       <div className="table">
         {senders.map((sender) => (
           <div className="tableRow senderRow" key={sender.email}>
             <div>
-              <strong>{sender.email}</strong>
-              <span>{sender.name ?? 'Unknown sender'}</span>
+              <strong>{sender.name ?? sender.email}</strong>
+              <span>{sender.email}</span>
               <small>
                 {sender.trustStatus} · last imported {sender.lastImportedAt ?? 'never'}
               </small>
             </div>
-            <button onClick={() => trust(sender.email, 'trusted')}>Trust</button>
-            <button onClick={() => trust(sender.email, 'ignored')}>Ignore</button>
+            <span className={`pill ${sender.trustStatus}`}>{sender.trustStatus}</span>
+            <button disabled={sender.trustStatus === 'trusted'} onClick={() => trust(sender.email, 'trusted')}>Trust sender</button>
+            <button disabled={sender.trustStatus === 'ignored'} onClick={() => trust(sender.email, 'ignored')}>Ignore sender</button>
           </div>
         ))}
       </div>

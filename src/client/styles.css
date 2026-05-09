@@ -305,11 +305,11 @@ textarea {
 }
 
 .inboxRow {
-  grid-template-columns: minmax(260px, 1fr) 220px auto auto;
+  grid-template-columns: minmax(260px, 1fr) auto minmax(360px, auto) auto;
 }
 
 .senderRow {
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: 1fr auto auto auto;
 }
 
 .coverageRow {
@@ -317,17 +317,45 @@ textarea {
 }
 
 .inboxFilters {
-  grid-template-columns: 180px 180px auto;
+  grid-template-columns: 180px 180px auto auto;
 }
 
 .pill.ok {
   background: #d7f5d1;
 }
 
+.pill.trusted {
+  background: #d7f5d1;
+}
+
+.pill.pending {
+  background: #edf2ec;
+}
+
+.pill.ignored {
+  background: #ffd9d3;
+}
+
 .pill.stale,
 .pill.rss_gap,
 .pill.no_email_articles {
   background: #fff0c6;
+}
+
+.candidateActions {
+  display: grid;
+  grid-template-columns: auto minmax(170px, 1fr) auto;
+  gap: 8px;
+}
+
+.candidateActions.compact {
+  grid-template-columns: auto auto;
+}
+
+.senderSummary {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0 14px;
 }
 
 .tableRow div {

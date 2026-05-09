@@ -3,9 +3,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { config, isGmailConfigured } from '../config.js';
 import {
+  getAppState,
   getArticleByGmailMessageId,
   getEmailSender,
+  ignoreGmailMessage,
+  isGmailMessageIgnored,
   markEmailSenderImported,
+  setAppState,
   upsertArticle,
   upsertEmailSender
 } from '../repository.js';
@@ -35,6 +39,14 @@ interface GmailMessage {
   threadId?: string;
   labelIds?: string[];
   raw?: string;
+  internalDate?: string;
+}
+
+interface GmailProfile {
+  emailAddress: string;
+  messagesTotal: number;
+  threadsTotal: number;
+  historyId: string;
 }
 
 function ensureDataDir() {
@@ -61,6 +73,9 @@ export function getGmailStatus() {
     connected: Boolean(token?.refresh_token || token?.access_token),
     scope: gmailScope,
     grantedScope: token?.scope ?? null,
+    accountEmail: getAppState('gmail_account_email'),
+    lastScanAt: getAppState('gmail_last_scan_at'),
+    lastScanNewestMessageAt: getAppState('gmail_last_scan_newest_message_at'),
     excludesSpamTrash: true,
     redirectUri: config.googleRedirectUri
   };
@@ -109,6 +124,7 @@ export async function handleGmailCallback(code: string, state: string) {
 
   const token = (await response.json()) as GmailToken;
   writeToken({ ...token, expires_at: Date.now() + Number(token.expires_in ?? 0) * 1000 });
+  await refreshGmailProfile();
 }
 
 async function getAccessToken() {
@@ -155,8 +171,6 @@ export function buildGmailArticleQuery(input?: { after?: string; before?: string
   const parts = ['-in:spam', '-in:trash'];
   if (input?.sender) {
     parts.push(`from:${input.sender}`);
-  } else {
-    parts.push('("substack.com/p/" OR "View in browser" OR "Read on Substack")');
   }
   if (input?.after) {
     parts.push(`after:${input.after.replaceAll('-', '/')}`);
@@ -189,39 +203,58 @@ async function getRawMessage(messageId: string) {
   return gmailFetch<GmailMessage>(url.toString());
 }
 
-export async function searchGmailCandidates(input?: { after?: string; before?: string; sender?: string; maxResults?: number }) {
+export async function refreshGmailProfile() {
+  const profile = await gmailFetch<GmailProfile>('https://gmail.googleapis.com/gmail/v1/users/me/profile');
+  setAppState('gmail_account_email', profile.emailAddress);
+  return profile;
+}
+
+export async function searchGmailCandidates(input?: {
+  after?: string;
+  before?: string;
+  sender?: string;
+  maxResults?: number;
+  fullScan?: boolean;
+}) {
+  await refreshGmailProfile();
+  const lastNewest = getAppState('gmail_last_scan_newest_message_at');
+  const incrementalAfter = lastNewest ? oneDayBefore(lastNewest) : undefined;
   const query = buildGmailArticleQuery({
     ...input,
-    after: input?.after ?? defaultAfterDate()
+    after: input?.after ?? (input?.fullScan ? undefined : incrementalAfter)
   });
-  const url = new URL('https://gmail.googleapis.com/gmail/v1/users/me/messages');
-  url.searchParams.set('q', query);
-  url.searchParams.set('maxResults', String(input?.maxResults ?? 25));
-  const list = await gmailFetch<GmailListResponse>(url.toString());
-  const messages = list.messages ?? [];
+  const messages = await listMessageIds(query, input?.maxResults ?? 1000);
   const candidates: GmailCandidate[] = [];
+  let newestInternalDate = 0;
 
   for (const message of messages) {
     const rawMessage = await getRawMessage(message.id);
+    newestInternalDate = Math.max(newestInternalDate, Number(rawMessage.internalDate ?? 0));
     if (!rawMessage.raw) {
       continue;
     }
 
     const parsed = await parseNewsletterEmail(decodeBase64Url(rawMessage.raw));
+    if (!parsed.senderEmail) {
+      continue;
+    }
+    const existingSender = getEmailSender(parsed.senderEmail);
+    const hasArticleUrl = Boolean(parsed.articleUrl);
+    const isTrusted = existingSender?.trustStatus === 'trusted';
+    const isPublicationSender = isLikelySubstackPublicationSender(parsed.senderEmail);
+    const isCandidate = isTrusted || hasArticleUrl || isPublicationSender;
+
+    if (!isCandidate) {
+      continue;
+    }
+
     const sender = upsertEmailSender({
       email: parsed.senderEmail,
       name: parsed.senderName,
-      trustStatus: getEmailSender(parsed.senderEmail)?.trustStatus ?? 'pending'
+      trustStatus: existingSender?.trustStatus ?? 'pending'
     });
     const alreadyImported = getArticleByGmailMessageId(message.id);
-    const hasArticleUrl = Boolean(parsed.articleUrl);
-    const isTrusted = sender.trustStatus === 'trusted';
-    const isPublicationSender = isLikelySubstackPublicationSender(parsed.senderEmail);
-    const isCandidate = isTrusted || (isPublicationSender && hasArticleUrl);
-
-    if (!isCandidate && sender.trustStatus !== 'pending') {
-      continue;
-    }
+    const messageIgnored = isGmailMessageIgnored(message.id);
 
     candidates.push({
       messageId: message.id,
@@ -234,7 +267,8 @@ export async function searchGmailCandidates(input?: { after?: string; before?: s
       articleUrl: parsed.articleUrl,
       publicationName: parsed.publicationName,
       trustStatus: sender.trustStatus,
-      importStatus: alreadyImported ? 'already_imported' : sender.trustStatus === 'ignored' ? 'ignored' : 'candidate',
+      importStatus: alreadyImported || messageIgnored ? 'already_imported' : sender.trustStatus === 'ignored' ? 'ignored' : 'candidate',
+      messageIgnored,
       reason: isTrusted
         ? 'Trusted publication sender'
         : hasArticleUrl
@@ -243,16 +277,55 @@ export async function searchGmailCandidates(input?: { after?: string; before?: s
     });
   }
 
+  setAppState('gmail_last_scan_at', new Date().toISOString());
+  if (newestInternalDate > 0) {
+    setAppState('gmail_last_scan_newest_message_at', new Date(newestInternalDate).toISOString());
+  }
+
   return candidates;
 }
 
-function defaultAfterDate() {
-  const date = new Date();
-  date.setMonth(date.getMonth() - 6);
+async function listMessageIds(query: string, maxToScan: number) {
+  const messages: Array<{ id: string; threadId: string }> = [];
+  let nextPageToken: string | undefined;
+
+  do {
+    const url = new URL('https://gmail.googleapis.com/gmail/v1/users/me/messages');
+    url.searchParams.set('q', query);
+    url.searchParams.set('maxResults', String(Math.min(100, maxToScan - messages.length)));
+    if (nextPageToken) {
+      url.searchParams.set('pageToken', nextPageToken);
+    }
+
+    const list = await gmailFetch<GmailListResponse>(url.toString());
+    messages.push(...(list.messages ?? []));
+    nextPageToken = list.nextPageToken;
+  } while (nextPageToken && messages.length < maxToScan);
+
+  return messages;
+}
+
+function oneDayBefore(isoDate: string) {
+  const date = new Date(isoDate);
+  date.setDate(date.getDate() - 1);
   return date.toISOString().slice(0, 10);
 }
 
+export function ignoreGmailCandidate(input: { messageId: string; senderEmail?: string; subject?: string }) {
+  ignoreGmailMessage({
+    messageId: input.messageId,
+    senderEmail: input.senderEmail,
+    subject: input.subject,
+    reason: 'Ignored manually from Subscription Inbox'
+  });
+  return { ok: true };
+}
+
 export async function importGmailMessage(messageId: string) {
+  if (isGmailMessageIgnored(messageId)) {
+    throw new Error('Gmail message is ignored');
+  }
+
   const rawMessage = await getRawMessage(messageId);
   if (!rawMessage.raw) {
     throw new Error('Gmail message had no raw payload');
