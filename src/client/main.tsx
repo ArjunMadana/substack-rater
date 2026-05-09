@@ -124,7 +124,7 @@ function App() {
         )}
         {view === 'inbox' && <InboxView publications={publications} onChanged={refresh} setMessage={setMessage} />}
         {view === 'coverage' && <CoverageView />}
-        {view === 'claims' && <ClaimsView claims={claims} onChanged={refresh} />}
+        {view === 'claims' && <ClaimsView claims={claims} onChanged={refresh} setMessage={setMessage} />}
         {view === 'settings' && <SettingsView publications={publications} onImported={refresh} />}
       </section>
     </main>
@@ -198,6 +198,8 @@ function FeedView({
               <div className="claim" key={claim.id}>
                 <strong>{claim.ticker ?? claim.claimType}</strong>
                 <p>{claim.claimText}</p>
+                {claim.verifiabilityReason && <small>Verifiable because: {claim.verifiabilityReason}</small>}
+                {claim.verificationQuery && <small>Verification query: {claim.verificationQuery}</small>}
                 <span>{claim.status}</span>
               </div>
             ))}
@@ -547,10 +549,33 @@ function PublicationsView({
   );
 }
 
-function ClaimsView({ claims, onChanged }: { claims: Claim[]; onChanged: () => Promise<void> }) {
+function ClaimsView({
+  claims,
+  onChanged,
+  setMessage
+}: {
+  claims: Claim[];
+  onChanged: () => Promise<void>;
+  setMessage: (message: string) => void;
+}) {
+  const [verifyingId, setVerifyingId] = useState<number | null>(null);
+
   async function update(id: number, status: Claim['status']) {
     await api(`/api/claims/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
     await onChanged();
+  }
+
+  async function verify(id: number) {
+    setVerifyingId(id);
+    try {
+      const claim = await api<Claim>(`/api/claims/${id}/verify`, { method: 'POST' });
+      setMessage(`Verification updated: ${claim.status}`);
+      await onChanged();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Claim verification failed');
+    } finally {
+      setVerifyingId(null);
+    }
   }
 
   return (
@@ -558,13 +583,16 @@ function ClaimsView({ claims, onChanged }: { claims: Claim[]; onChanged: () => P
       <header className="sectionHeader">
         <div>
           <h2>Claim Ledger</h2>
-          <p>Review extracted predictions and resolve outcomes over time.</p>
+          <p>Review extracted predictions, verify matured outcomes, and keep vague statements out of track record scoring.</p>
         </div>
       </header>
       {claims.map((claim) => (
         <div className="claim ledger" key={claim.id}>
           <strong>{claim.ticker ?? claim.claimType}</strong>
           <p>{claim.claimText}</p>
+          {claim.verifiabilityReason && <small>Verifiable because: {claim.verifiabilityReason}</small>}
+          {claim.verificationQuery && <small>Search: {claim.verificationQuery}</small>}
+          {claim.outcomeNotes && <small>{claim.outcomeNotes}</small>}
           <select value={claim.status} onChange={(event) => update(claim.id, event.target.value as Claim['status'])}>
             <option value="unresolved">unresolved</option>
             <option value="verified_true">verified_true</option>
@@ -572,6 +600,9 @@ function ClaimsView({ claims, onChanged }: { claims: Claim[]; onChanged: () => P
             <option value="mixed">mixed</option>
             <option value="expired_unresolved">expired_unresolved</option>
           </select>
+          <button onClick={() => verify(claim.id)} disabled={verifyingId === claim.id}>
+            {verifyingId === claim.id ? 'Verifying...' : 'Verify'}
+          </button>
         </div>
       ))}
       {!claims.length && <p className="empty">Extract claims from article detail pages to populate the ledger.</p>}

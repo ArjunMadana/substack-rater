@@ -273,8 +273,9 @@ export function insertClaim(input: Omit<Claim, 'id' | 'createdAt' | 'updatedAt' 
     .prepare(
       `INSERT INTO claims (
         article_id, publication_id, claim_text, claim_type, ticker, time_horizon,
-        due_date, confidence, evidence, source_snippet
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        due_date, confidence, evidence, source_snippet, verification_query,
+        verifiability_reason
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       input.articleId,
@@ -286,7 +287,9 @@ export function insertClaim(input: Omit<Claim, 'id' | 'createdAt' | 'updatedAt' 
       input.dueDate,
       input.confidence,
       input.evidence,
-      input.sourceSnippet
+      input.sourceSnippet,
+      input.verificationQuery,
+      input.verifiabilityReason
     );
   const row = getDb().prepare('SELECT * FROM claims WHERE id = ?').get(Number(result.lastInsertRowid)) as Record<
     string,
@@ -305,6 +308,49 @@ export function updateClaimStatus(id: number, status: string, outcomeNotes: stri
     .run(status, outcomeNotes, id);
   const row = getDb().prepare('SELECT * FROM claims WHERE id = ?').get(id) as Record<string, unknown>;
   return mapClaim(row);
+}
+
+export function getClaim(id: number) {
+  const row = getDb().prepare('SELECT * FROM claims WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+  return row ? mapClaim(row) : null;
+}
+
+export function updateClaimVerification(input: {
+  id: number;
+  status: string;
+  outcomeNotes: string;
+  verificationSources: string | null;
+  verificationConfidence: string | null;
+}) {
+  getDb()
+    .prepare(
+      `UPDATE claims
+       SET status = ?,
+           outcome_notes = ?,
+           verification_sources = ?,
+           verification_confidence = ?,
+           verified_at = CURRENT_TIMESTAMP,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`
+    )
+    .run(
+      input.status,
+      input.outcomeNotes,
+      input.verificationSources,
+      input.verificationConfidence,
+      input.id
+    );
+  const row = getDb().prepare('SELECT * FROM claims WHERE id = ?').get(input.id) as Record<string, unknown>;
+  return mapClaim(row);
+}
+
+export function clearImportedArticlesAndClaims() {
+  const db = getDb();
+  const countRow = db
+    .prepare('SELECT (SELECT COUNT(*) FROM articles) AS articles, (SELECT COUNT(*) FROM claims) AS claims')
+    .get() as { articles: number; claims: number };
+  db.exec('DELETE FROM claims; DELETE FROM articles; UPDATE email_senders SET last_imported_at = NULL;');
+  return { articlesDeleted: Number(countRow.articles), claimsDeleted: Number(countRow.claims) };
 }
 
 export function upsertEmailSender(input: {

@@ -67,5 +67,15 @@ Important fields:
 - `ticker`
 - `time_horizon`
 - `due_date`
+- `confidence`
+- `evidence`
+- `source_snippet`
+- `verification_query`
+- `verifiability_reason`
+- `verification_sources`
+- `verification_confidence`
+- `verified_at`
 - `status`
 - `outcome_notes`
+
+`verification_query` and `verifiability_reason` are generated during extraction so low-quality, non-falsifiable statements can be filtered out before they affect accuracy tracking. `verification_sources`, `verification_confidence`, and `verified_at` are populated by the claim verification flow.

@@ -23,7 +23,7 @@ export const config = {
   googleClientSecret: process.env.GOOGLE_CLIENT_SECRET ?? '',
   googleRedirectUri: process.env.GOOGLE_REDIRECT_URI ?? 'http://127.0.0.1:8787/api/gmail/oauth/callback',
   openAiApiKey: process.env.OPENAI_API_KEY ?? '',
-  openAiModel: process.env.OPENAI_MODEL ?? 'gpt-4o-mini'
+  openAiModel: process.env.OPENAI_MODEL ?? 'gpt-5.4-mini'
 };
 
 export function isGmailConfigured() {

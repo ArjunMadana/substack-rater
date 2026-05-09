@@ -262,8 +262,15 @@ nav button.active {
 }
 
 .claim span,
-.claim select {
+.claim select,
+.claim small {
   color: #44605f;
+}
+
+.claim small {
+  display: block;
+  margin-top: 4px;
+  white-space: pre-wrap;
 }
 
 .articleText {
@@ -370,9 +377,13 @@ textarea {
 
 .ledger {
   display: grid;
-  grid-template-columns: 150px 1fr 190px;
+  grid-template-columns: 150px minmax(240px, 1fr) 190px auto;
   gap: 12px;
   align-items: center;
+}
+
+.ledger small {
+  grid-column: 2 / -1;
 }
 
 @media (max-width: 980px) {

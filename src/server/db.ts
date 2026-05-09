@@ -106,6 +106,11 @@ function migrate(database: DatabaseSync) {
       confidence TEXT,
       evidence TEXT,
       source_snippet TEXT,
+      verification_query TEXT,
+      verifiability_reason TEXT,
+      verification_sources TEXT,
+      verification_confidence TEXT,
+      verified_at TEXT,
       status TEXT NOT NULL DEFAULT 'unresolved',
       outcome_notes TEXT,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -126,6 +131,11 @@ function migrate(database: DatabaseSync) {
   addColumnIfMissing(database, 'articles', 'credibility_score', 'REAL NOT NULL DEFAULT 0');
   addColumnIfMissing(database, 'articles', 'read_value_score', 'REAL NOT NULL DEFAULT 0');
   addColumnIfMissing(database, 'articles', 'analysis_mode', "TEXT NOT NULL DEFAULT 'both'");
+  addColumnIfMissing(database, 'claims', 'verification_query', 'TEXT');
+  addColumnIfMissing(database, 'claims', 'verifiability_reason', 'TEXT');
+  addColumnIfMissing(database, 'claims', 'verification_sources', 'TEXT');
+  addColumnIfMissing(database, 'claims', 'verification_confidence', 'TEXT');
+  addColumnIfMissing(database, 'claims', 'verified_at', 'TEXT');
   database.exec('CREATE UNIQUE INDEX IF NOT EXISTS articles_gmail_message_id_unique_idx ON articles(gmail_message_id);');
   database.exec('CREATE INDEX IF NOT EXISTS articles_email_sender_idx ON articles(email_sender);');
 }

@@ -19,6 +19,8 @@ Open the Vite URL shown in the terminal, usually `http://127.0.0.1:5173`.
 - Backfill public archive articles missing from RSS.
 - Import premium article/email text without storing Substack credentials.
 - Extract prediction claims into a ledger.
+- Filter out vague, non-verifiable statements before they enter the ledger.
+- Verify extracted claims with OpenAI web search and keep manual outcome control.
 - Rank articles for investment opportunity discovery.
 - Separate article credibility analysis from high-value-read ranking.
 
@@ -28,4 +30,4 @@ See `/documentation` for architecture, ingestion, scoring, and schema notes.
 
 ## Environment
 
-Copy `.env.example` to `.env` and fill in local credentials as needed. `.env` is ignored by git.
+Copy `.env.example` to `.env` and fill in local credentials as needed. `.env` is ignored by git. The default OpenAI model is `gpt-5.4-mini`.

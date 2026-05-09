@@ -67,6 +67,11 @@ export interface Claim {
   confidence: string | null;
   evidence: string | null;
   sourceSnippet: string | null;
+  verificationQuery: string | null;
+  verifiabilityReason: string | null;
+  verificationSources: string | null;
+  verificationConfidence: string | null;
+  verifiedAt: string | null;
   status: ClaimStatus;
   outcomeNotes: string | null;
   createdAt: string;

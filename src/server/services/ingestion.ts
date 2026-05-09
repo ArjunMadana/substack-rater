@@ -1,8 +1,10 @@
 import { simpleParser } from 'mailparser';
 import {
   getArticle,
+  getClaim,
   getPublication,
   insertClaim,
+  updateClaimVerification,
   updatePublicationSync,
   upsertArticle,
   upsertPublication
@@ -11,7 +13,7 @@ import { archiveUrlForPublication, canonicalizeArticleUrl, normalizePublicationU
 import { parseRss } from './rss.js';
 import { detectPartialArticleHtml, stripHtml, summarizeText } from './text.js';
 import { discoverArchiveLinks, extractArticleText } from './archive.js';
-import { getAiProvider } from './ai.js';
+import { getAiProvider, isVerifiableClaim } from './ai.js';
 
 async function fetchText(url: string) {
   const response = await fetch(url, {
@@ -135,7 +137,7 @@ export async function extractClaimsForArticle(articleId: number) {
   const provider = getAiProvider();
   const extracted = await provider.extractClaims({ title: article.title, text: article.contentText });
 
-  return extracted.map((claim) =>
+  return extracted.filter(isVerifiableClaim).map((claim) =>
     insertClaim({
       articleId: article.id,
       publicationId: article.publicationId,
@@ -146,7 +148,51 @@ export async function extractClaimsForArticle(articleId: number) {
       dueDate: claim.dueDate,
       confidence: claim.confidence,
       evidence: claim.evidence,
-      sourceSnippet: claim.sourceSnippet
+      sourceSnippet: claim.sourceSnippet,
+      verificationQuery: claim.verificationQuery,
+      verifiabilityReason: claim.verifiabilityReason,
+      verificationSources: null,
+      verificationConfidence: null,
+      verifiedAt: null
     })
   );
+}
+
+export async function verifyClaim(claimId: number) {
+  const claim = getClaim(claimId);
+  if (!claim) {
+    throw new Error('Claim not found');
+  }
+
+  const provider = getAiProvider();
+  const result = await provider.verifyClaim({
+    claimText: claim.claimText,
+    claimType: claim.claimType,
+    ticker: claim.ticker,
+    dueDate: claim.dueDate,
+    verificationQuery: claim.verificationQuery,
+    sourceSnippet: claim.sourceSnippet
+  });
+
+  const status =
+    result.outcome === 'supported'
+      ? 'verified_true'
+      : result.outcome === 'contradicted'
+        ? 'verified_false'
+        : result.outcome === 'mixed'
+          ? 'mixed'
+          : 'unresolved';
+
+  const sourceLines = result.sources.map((source) => `- ${source.title}: ${source.url}${source.note ? ` (${source.note})` : ''}`);
+  const outcomeNotes = [result.summary, sourceLines.length ? `Sources:\n${sourceLines.join('\n')}` : null]
+    .filter(Boolean)
+    .join('\n\n');
+
+  return updateClaimVerification({
+    id: claim.id,
+    status,
+    outcomeNotes,
+    verificationSources: result.sources.length ? JSON.stringify(result.sources) : null,
+    verificationConfidence: result.confidence
+  });
 }

@@ -6,6 +6,7 @@ import { getDb } from './db.js';
 import {
   listCoverageItems,
   listEmailSenders,
+  clearImportedArticlesAndClaims,
   getArticle,
   listClaims,
   listClaimsForArticle,
@@ -27,7 +28,8 @@ import {
   backfillPublicationArchive,
   extractClaimsForArticle,
   importEmail,
-  syncPublicationRss
+  syncPublicationRss,
+  verifyClaim
 } from './services/ingestion.js';
 
 const app = express();
@@ -207,6 +209,18 @@ app.patch('/api/claims/:id', (request, response, next) => {
   } catch (error) {
     next(error);
   }
+});
+
+app.post('/api/claims/:id/verify', async (request, response, next) => {
+  try {
+    response.json(await verifyClaim(Number(request.params.id)));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/admin/clear-imported', (_request, response) => {
+  response.json(clearImportedArticlesAndClaims());
 });
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

@@ -13,6 +13,7 @@ Gmail is the primary source for subscribed Substack articles.
 - Individual Gmail messages can be ignored without ignoring the sender, which is useful for delivery tests, verification codes, or other non-article emails from trusted senders.
 - Importing a Gmail candidate creates or updates the article, adds it to the ranked Feed, and immediately runs claim extraction so the Claims ledger starts filling without a separate manual step.
 - The app stores the connected Gmail account email and the newest scanned message timestamp. Later scans default forward from that timestamp, while Full Rescan can rebuild the candidate list from the mailbox.
+- Imported articles and generated claims can be cleared without removing Gmail OAuth, trusted/ignored sender review state, publications, or scan history.
 
 Gmail imports are preferred over RSS/archive duplicates because they represent the user's subscribed delivery and usually contain full text for readable articles.
 
