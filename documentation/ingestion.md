@@ -6,7 +6,7 @@ Gmail is the primary source for subscribed Substack articles.
 
 - The app uses Gmail OAuth with `gmail.readonly`.
 - Gmail scanning walks the normal mailbox broadly and filters locally for Substack article signals instead of relying on a narrow Gmail search query.
-- Gmail search is not restricted to the Primary inbox, so Promotions can be included.
+- Gmail search is not restricted to the Primary inbox, but Promotions are excluded because Gmail's category filter is generally useful for removing low-value mail.
 - Spam and Trash are always excluded.
 - Unknown Substack senders are reviewed before trust is granted.
 - Once a sender such as `publication@substack.com` is trusted, future messages from that sender are treated as subscribed article candidates.

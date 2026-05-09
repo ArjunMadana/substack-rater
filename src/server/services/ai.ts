@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { config } from '../config.js';
 
 export const extractedClaimSchema = z.object({
   claimText: z.string().min(1),
@@ -15,6 +16,95 @@ export type ExtractedClaim = z.infer<typeof extractedClaimSchema>;
 
 export interface AiProvider {
   extractClaims(input: { title: string; text: string }): Promise<ExtractedClaim[]>;
+}
+
+const openAiClaimResponseSchema = z.object({
+  claims: z.array(extractedClaimSchema).default([])
+});
+
+export class OpenAiProvider implements AiProvider {
+  async extractClaims(input: { title: string; text: string }) {
+    if (!config.openAiApiKey) {
+      throw new Error('OPENAI_API_KEY is not configured');
+    }
+
+    const response = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.openAiApiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: config.openAiModel,
+        input: [
+          {
+            role: 'system',
+            content:
+              'Extract only substantive, checkable claims from newsletter articles. Focus on forecasts, causal claims, company/ticker claims, factual claims that can later be verified, and investment theses. Exclude disclaimers, unsubscribe text, personal logistics, vague opinions, and generic commentary. Return JSON only.'
+          },
+          {
+            role: 'user',
+            content: `Title: ${input.title}\n\nArticle:\n${input.text.slice(0, 55000)}`
+          }
+        ],
+        text: {
+          format: {
+            type: 'json_schema',
+            name: 'claim_extraction',
+            strict: true,
+            schema: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                claims: {
+                  type: 'array',
+                  maxItems: 15,
+                  items: {
+                    type: 'object',
+                    additionalProperties: false,
+                    properties: {
+                      claimText: { type: 'string' },
+                      claimType: {
+                        type: 'string',
+                        enum: ['prediction', 'investment_prediction', 'factual_claim', 'causal_claim', 'thesis']
+                      },
+                      ticker: { type: ['string', 'null'] },
+                      timeHorizon: { type: ['string', 'null'] },
+                      dueDate: { type: ['string', 'null'] },
+                      confidence: { type: ['string', 'null'] },
+                      evidence: { type: ['string', 'null'] },
+                      sourceSnippet: { type: ['string', 'null'] }
+                    },
+                    required: [
+                      'claimText',
+                      'claimType',
+                      'ticker',
+                      'timeHorizon',
+                      'dueDate',
+                      'confidence',
+                      'evidence',
+                      'sourceSnippet'
+                    ]
+                  }
+                }
+              },
+              required: ['claims']
+            }
+          }
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`OpenAI claim extraction failed: ${response.status}. ${body.slice(0, 500)}`);
+    }
+
+    const body = (await response.json()) as Record<string, unknown>;
+    const outputText = extractOutputText(body);
+    const parsed = openAiClaimResponseSchema.parse(JSON.parse(outputText));
+    return parsed.claims;
+  }
 }
 
 export class HeuristicAiProvider implements AiProvider {
@@ -47,5 +137,31 @@ export class HeuristicAiProvider implements AiProvider {
 }
 
 export function getAiProvider(): AiProvider {
+  if (config.openAiApiKey) {
+    return new OpenAiProvider();
+  }
+
   return new HeuristicAiProvider();
+}
+
+function extractOutputText(response: Record<string, unknown>) {
+  if (typeof response.output_text === 'string') {
+    return response.output_text;
+  }
+
+  const output = response.output;
+  if (Array.isArray(output)) {
+    for (const item of output) {
+      if (!item || typeof item !== 'object') continue;
+      const content = (item as { content?: unknown }).content;
+      if (!Array.isArray(content)) continue;
+      for (const part of content) {
+        if (part && typeof part === 'object' && typeof (part as { text?: unknown }).text === 'string') {
+          return (part as { text: string }).text;
+        }
+      }
+    }
+  }
+
+  throw new Error('OpenAI response did not include output text');
 }

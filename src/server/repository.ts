@@ -117,6 +117,9 @@ export function upsertArticle(input: ArticleInsert) {
              quality_score = ?,
              relevance_score = ?,
              importance_score = ?,
+             credibility_score = ?,
+             read_value_score = ?,
+             analysis_mode = ?,
              ranking_reason = ?,
              updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`
@@ -145,6 +148,9 @@ export function upsertArticle(input: ArticleInsert) {
         scores.qualityScore,
         scores.relevanceScore,
         scores.importanceScore,
+        scores.credibilityScore,
+        scores.readValueScore,
+        scores.analysisMode,
         scores.rankingReason,
         existing.id
       );
@@ -157,8 +163,9 @@ export function upsertArticle(input: ArticleInsert) {
         publication_id, title, url, guid, author, published_at, summary, content_text,
         source, is_premium_preview, needs_full_text, access_level, full_text_status,
         detection_evidence, gmail_message_id, email_sender, email_labels, quality_score,
-        relevance_score, importance_score, ranking_reason
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        relevance_score, importance_score, credibility_score, read_value_score, analysis_mode,
+        ranking_reason
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       input.publicationId,
@@ -181,6 +188,9 @@ export function upsertArticle(input: ArticleInsert) {
       scores.qualityScore,
       scores.relevanceScore,
       scores.importanceScore,
+      scores.credibilityScore,
+      scores.readValueScore,
+      scores.analysisMode,
       scores.rankingReason
     );
   return getArticle(Number(result.lastInsertRowid)) as Article;

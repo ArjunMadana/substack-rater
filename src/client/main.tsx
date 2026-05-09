@@ -14,6 +14,7 @@ interface GmailStatus {
   lastScanAt: string | null;
   lastScanNewestMessageAt: string | null;
   excludesSpamTrash: boolean;
+  excludesPromotions: boolean;
   redirectUri: string;
 }
 
@@ -158,7 +159,7 @@ function FeedView({
                 <h3>{article.title}</h3>
                 <p>{article.publicationName ?? 'Unknown publication'}</p>
                 <span>
-                  {article.source} · {article.fullTextStatus} · {article.rankingReason}
+                  {article.source} - {article.analysisMode} - {article.rankingReason}
                 </span>
               </div>
               {article.needsFullText && <b>needs import</b>}
@@ -179,11 +180,12 @@ function FeedView({
             </div>
             <div className="scoreGrid">
               <Metric label="Importance" value={selectedArticle.article.importanceScore} />
-              <Metric label="Research" value={selectedArticle.article.qualityScore} />
-              <Metric label="Relevance" value={selectedArticle.article.relevanceScore} />
+              <Metric label="Read Value" value={selectedArticle.article.readValueScore} />
+              <Metric label="Credibility" value={selectedArticle.article.credibilityScore} />
             </div>
             <div className="metaLine">
               <span>Source: {selectedArticle.article.source}</span>
+              <span>Mode: {selectedArticle.article.analysisMode}</span>
               <span>Access: {selectedArticle.article.accessLevel}</span>
               <span>Text: {selectedArticle.article.fullTextStatus}</span>
               {selectedArticle.article.emailSender && <span>Sender: {selectedArticle.article.emailSender}</span>}
@@ -293,8 +295,9 @@ function InboxView({
     try {
       await api(`/api/articles/${article.id}/extract-claims`, { method: 'POST' });
       setMessage(`Imported and analyzed: ${article.title}`);
-    } catch {
-      setMessage(`Imported to Feed: ${article.title}`);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : 'claim extraction failed';
+      setMessage(`Imported to Feed, but analysis failed: ${reason}`);
     }
     await onChanged();
     setCandidates((items) =>
@@ -343,6 +346,7 @@ function InboxView({
         <Metric label="Configured" value={status?.configured ? 1 : 0} />
         <Metric label="Connected" value={status?.connected ? 1 : 0} />
         <Metric label="Spam/Trash Excluded" value={status?.excludesSpamTrash ? 1 : 0} />
+        <Metric label="Promotions Excluded" value={status?.excludesPromotions ? 1 : 0} />
       </div>
       {status?.accountEmail && (
         <div className="notice subtle">
@@ -355,7 +359,7 @@ function InboxView({
       )}
       <div className="notice subtle">
         Scan New uses the newest previously scanned email as its starting point. Full Rescan walks the normal mailbox
-        broadly, including Promotions, while excluding Spam and Trash.
+        broadly while excluding Promotions, Spam, and Trash.
       </div>
       <div className="formLine inboxFilters">
         <input type="date" value={after} onChange={(event) => setAfter(event.target.value)} aria-label="After date" />

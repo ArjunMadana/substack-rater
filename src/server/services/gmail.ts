@@ -77,6 +77,7 @@ export function getGmailStatus() {
     lastScanAt: getAppState('gmail_last_scan_at'),
     lastScanNewestMessageAt: getAppState('gmail_last_scan_newest_message_at'),
     excludesSpamTrash: true,
+    excludesPromotions: true,
     redirectUri: config.googleRedirectUri
   };
 }
@@ -168,7 +169,7 @@ async function getAccessToken() {
 }
 
 export function buildGmailArticleQuery(input?: { after?: string; before?: string; sender?: string }) {
-  const parts = ['-in:spam', '-in:trash'];
+  const parts = ['-in:spam', '-in:trash', '-category:promotions'];
   if (input?.sender) {
     parts.push(`from:${input.sender}`);
   }
@@ -231,6 +232,9 @@ export async function searchGmailCandidates(input?: {
     const rawMessage = await getRawMessage(message.id);
     newestInternalDate = Math.max(newestInternalDate, Number(rawMessage.internalDate ?? 0));
     if (!rawMessage.raw) {
+      continue;
+    }
+    if ((rawMessage.labelIds ?? []).includes('CATEGORY_PROMOTIONS')) {
       continue;
     }
 

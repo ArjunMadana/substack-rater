@@ -55,6 +55,9 @@ function migrate(database: DatabaseSync) {
       quality_score REAL NOT NULL DEFAULT 0,
       relevance_score REAL NOT NULL DEFAULT 0,
       importance_score REAL NOT NULL DEFAULT 0,
+      credibility_score REAL NOT NULL DEFAULT 0,
+      read_value_score REAL NOT NULL DEFAULT 0,
+      analysis_mode TEXT NOT NULL DEFAULT 'both',
       ranking_reason TEXT,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -120,6 +123,9 @@ function migrate(database: DatabaseSync) {
   addColumnIfMissing(database, 'articles', 'gmail_message_id', 'TEXT');
   addColumnIfMissing(database, 'articles', 'email_sender', 'TEXT');
   addColumnIfMissing(database, 'articles', 'email_labels', 'TEXT');
+  addColumnIfMissing(database, 'articles', 'credibility_score', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing(database, 'articles', 'read_value_score', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing(database, 'articles', 'analysis_mode', "TEXT NOT NULL DEFAULT 'both'");
   database.exec('CREATE UNIQUE INDEX IF NOT EXISTS articles_gmail_message_id_unique_idx ON articles(gmail_message_id);');
   database.exec('CREATE INDEX IF NOT EXISTS articles_email_sender_idx ON articles(email_sender);');
 }

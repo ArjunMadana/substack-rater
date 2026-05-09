@@ -9,6 +9,7 @@ export type ArticleSource = 'rss' | 'archive' | 'email' | 'email_subscription' |
 export type SenderTrustStatus = 'trusted' | 'ignored' | 'pending';
 export type AccessLevel = 'public_full' | 'premium_preview' | 'premium_full' | 'unknown';
 export type FullTextStatus = 'complete' | 'partial' | 'needs_email_import' | 'parse_failed';
+export type ArticleAnalysisMode = 'credibility' | 'read_value' | 'both' | 'ignore';
 
 export interface Publication {
   id: number;
@@ -46,6 +47,9 @@ export interface Article {
   qualityScore: number;
   relevanceScore: number;
   importanceScore: number;
+  credibilityScore: number;
+  readValueScore: number;
+  analysisMode: ArticleAnalysisMode;
   rankingReason: string | null;
   createdAt: string;
   updatedAt: string;

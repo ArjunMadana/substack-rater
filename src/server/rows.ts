@@ -41,6 +41,9 @@ export function mapArticle(row: Row): Article {
     qualityScore: Number(row.quality_score),
     relevanceScore: Number(row.relevance_score),
     importanceScore: Number(row.importance_score),
+    credibilityScore: Number(row.credibility_score ?? row.quality_score ?? 0),
+    readValueScore: Number(row.read_value_score ?? row.importance_score ?? 0),
+    analysisMode: (row.analysis_mode ? String(row.analysis_mode) : 'both') as Article['analysisMode'],
     rankingReason: row.ranking_reason ? String(row.ranking_reason) : null,
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at)

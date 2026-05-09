@@ -16,10 +16,26 @@ Scores:
 - `quality_score`
 - `relevance_score`
 - `importance_score`
+- `read_value_score`
+- `credibility_score`
+
+## Credibility vs Read Value
+
+The app separates two questions:
+
+- Credibility analysis: Does this article make substantive, checkable claims that should affect the author's track record?
+- Read value: Is this article important enough to read now for investment opportunity discovery?
+
+An article can be:
+
+- `both`: claimworthy and a high-value read.
+- `read_value`: useful to read now, but not enough checkable claims for track-record scoring.
+- `credibility`: worth tracking for author accuracy, even if it is not investment-relevant.
+- `ignore`: low signal for both workflows.
 
 ## Claim Ledger
 
-Claims are extracted into reviewable records with:
+When `OPENAI_API_KEY` is configured, claims are extracted with OpenAI structured outputs. Otherwise the app falls back to a local heuristic extractor. Claims are extracted into reviewable records with:
 
 - Claim text.
 - Claim type.

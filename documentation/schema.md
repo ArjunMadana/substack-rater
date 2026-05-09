@@ -49,6 +49,9 @@ Important fields:
 - `quality_score`
 - `relevance_score`
 - `importance_score`
+- `read_value_score`
+- `credibility_score`
+- `analysis_mode`
 - `ranking_reason`
 
 ## claims

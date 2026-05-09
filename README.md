@@ -20,6 +20,7 @@ Open the Vite URL shown in the terminal, usually `http://127.0.0.1:5173`.
 - Import premium article/email text without storing Substack credentials.
 - Extract prediction claims into a ledger.
 - Rank articles for investment opportunity discovery.
+- Separate article credibility analysis from high-value-read ranking.
 
 ## Documentation
 

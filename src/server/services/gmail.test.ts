@@ -7,6 +7,7 @@ describe('buildGmailArticleQuery', () => {
 
     expect(query).toContain('-in:spam');
     expect(query).toContain('-in:trash');
+    expect(query).toContain('-category:promotions');
     expect(query).toContain('after:2026/01/01');
     expect(query).toContain('before:2026/02/01');
     expect(query).not.toContain('in:inbox');
