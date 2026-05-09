@@ -9,6 +9,7 @@ interface GmailStatus {
   configured: boolean;
   connected: boolean;
   scope: string;
+  grantedScope: string | null;
   excludesSpamTrash: boolean;
   redirectUri: string;
 }
@@ -250,6 +251,9 @@ function InboxView({
       const result = await api<GmailCandidate[]>(`/api/gmail/candidates?${params.toString()}`);
       setCandidates(result);
       await refreshInbox();
+      setMessage(`Found ${result.length} Gmail candidate${result.length === 1 ? '' : 's'}.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Gmail search failed');
     } finally {
       setLoading(false);
     }
@@ -294,6 +298,10 @@ function InboxView({
       {!status?.configured && (
         <p className="notice">Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to .env, then restart the server.</p>
       )}
+      <div className="notice subtle">
+        Date fields are optional. Blank search defaults to the last 6 months and includes normal Gmail categories such
+        as Promotions while excluding Spam and Trash.
+      </div>
       <div className="formLine inboxFilters">
         <input type="date" value={after} onChange={(event) => setAfter(event.target.value)} aria-label="After date" />
         <input type="date" value={before} onChange={(event) => setBefore(event.target.value)} aria-label="Before date" />
@@ -301,6 +309,7 @@ function InboxView({
           Search Gmail
         </button>
       </div>
+      {status?.grantedScope && <p className="empty">Granted scope: {status.grantedScope}</p>}
       <h3>Candidate Emails</h3>
       <div className="table">
         {candidates.map((candidate) => (

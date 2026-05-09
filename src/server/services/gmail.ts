@@ -55,10 +55,12 @@ function writeToken(token: GmailToken) {
 }
 
 export function getGmailStatus() {
+  const token = readToken();
   return {
     configured: isGmailConfigured(),
-    connected: Boolean(readToken()?.refresh_token || readToken()?.access_token),
+    connected: Boolean(token?.refresh_token || token?.access_token),
     scope: gmailScope,
+    grantedScope: token?.scope ?? null,
     excludesSpamTrash: true,
     redirectUri: config.googleRedirectUri
   };
@@ -154,7 +156,7 @@ export function buildGmailArticleQuery(input?: { after?: string; before?: string
   if (input?.sender) {
     parts.push(`from:${input.sender}`);
   } else {
-    parts.push('from:substack.com');
+    parts.push('("substack.com/p/" OR "View in browser" OR "Read on Substack")');
   }
   if (input?.after) {
     parts.push(`after:${input.after.replaceAll('-', '/')}`);
@@ -172,7 +174,10 @@ async function gmailFetch<T>(url: string) {
   });
 
   if (!response.ok) {
-    throw new Error(`Gmail API request failed: ${response.status}`);
+    const body = await response.text();
+    throw new Error(
+      `Gmail API request failed: ${response.status}. ${body.slice(0, 500)}`
+    );
   }
 
   return response.json() as Promise<T>;
@@ -185,7 +190,10 @@ async function getRawMessage(messageId: string) {
 }
 
 export async function searchGmailCandidates(input?: { after?: string; before?: string; sender?: string; maxResults?: number }) {
-  const query = buildGmailArticleQuery(input);
+  const query = buildGmailArticleQuery({
+    ...input,
+    after: input?.after ?? defaultAfterDate()
+  });
   const url = new URL('https://gmail.googleapis.com/gmail/v1/users/me/messages');
   url.searchParams.set('q', query);
   url.searchParams.set('maxResults', String(input?.maxResults ?? 25));
@@ -236,6 +244,12 @@ export async function searchGmailCandidates(input?: { after?: string; before?: s
   }
 
   return candidates;
+}
+
+function defaultAfterDate() {
+  const date = new Date();
+  date.setMonth(date.getMonth() - 6);
+  return date.toISOString().slice(0, 10);
 }
 
 export async function importGmailMessage(messageId: string) {
