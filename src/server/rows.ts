@@ -1,4 +1,4 @@
-import type { Article, Claim, FeedItem, Publication } from '../shared/types.js';
+import type { Article, Claim, CoverageItem, EmailSender, FeedItem, Publication } from '../shared/types.js';
 
 type Row = Record<string, unknown>;
 
@@ -32,12 +32,45 @@ export function mapArticle(row: Row): Article {
     source: row.source as Article['source'],
     isPremiumPreview: Boolean(row.is_premium_preview),
     needsFullText: Boolean(row.needs_full_text),
+    accessLevel: (row.access_level ? String(row.access_level) : 'unknown') as Article['accessLevel'],
+    fullTextStatus: (row.full_text_status ? String(row.full_text_status) : 'complete') as Article['fullTextStatus'],
+    detectionEvidence: row.detection_evidence ? String(row.detection_evidence) : null,
+    gmailMessageId: row.gmail_message_id ? String(row.gmail_message_id) : null,
+    emailSender: row.email_sender ? String(row.email_sender) : null,
+    emailLabels: row.email_labels ? String(row.email_labels) : null,
     qualityScore: Number(row.quality_score),
     relevanceScore: Number(row.relevance_score),
     importanceScore: Number(row.importance_score),
     rankingReason: row.ranking_reason ? String(row.ranking_reason) : null,
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at)
+  };
+}
+
+export function mapEmailSender(row: Row): EmailSender {
+  return {
+    id: Number(row.id),
+    email: String(row.email),
+    name: row.name ? String(row.name) : null,
+    publicationId: row.publication_id === null ? null : Number(row.publication_id),
+    trustStatus: row.trust_status as EmailSender['trustStatus'],
+    lastImportedAt: row.last_imported_at ? String(row.last_imported_at) : null,
+    lastSeenAt: row.last_seen_at ? String(row.last_seen_at) : null,
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at)
+  };
+}
+
+export function mapCoverageItem(row: Row): CoverageItem {
+  const sender = mapEmailSender(row);
+  return {
+    sender,
+    publicationName: row.publication_name ? String(row.publication_name) : null,
+    articleCount: Number(row.article_count ?? 0),
+    newestEmailArticleAt: row.newest_email_article_at ? String(row.newest_email_article_at) : null,
+    newestRssOrArchiveAt: row.newest_rss_or_archive_at ? String(row.newest_rss_or_archive_at) : null,
+    status: row.coverage_status as CoverageItem['status'],
+    note: String(row.coverage_note)
   };
 }
 

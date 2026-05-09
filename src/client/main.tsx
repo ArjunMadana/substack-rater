@@ -1,9 +1,17 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import type { Article, Claim, FeedItem, Publication } from '../shared/types';
+import type { Article, Claim, CoverageItem, EmailSender, FeedItem, GmailCandidate, Publication } from '../shared/types';
 import './styles.css';
 
-type View = 'feed' | 'publications' | 'claims' | 'settings';
+type View = 'feed' | 'inbox' | 'coverage' | 'publications' | 'claims' | 'settings';
+
+interface GmailStatus {
+  configured: boolean;
+  connected: boolean;
+  scope: string;
+  excludesSpamTrash: boolean;
+  redirectUri: string;
+}
 
 async function api<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -62,7 +70,7 @@ function App() {
           </div>
         </div>
         <nav>
-          {(['feed', 'publications', 'claims', 'settings'] as View[]).map((item) => (
+          {(['feed', 'inbox', 'coverage', 'publications', 'claims', 'settings'] as View[]).map((item) => (
             <button className={view === item ? 'active' : ''} key={item} onClick={() => setView(item)}>
               {item}
             </button>
@@ -109,6 +117,8 @@ function App() {
             setMessage={setMessage}
           />
         )}
+        {view === 'inbox' && <InboxView publications={publications} onChanged={refresh} setMessage={setMessage} />}
+        {view === 'coverage' && <CoverageView />}
         {view === 'claims' && <ClaimsView claims={claims} onChanged={refresh} />}
         {view === 'settings' && <SettingsView publications={publications} onImported={refresh} />}
       </section>
@@ -143,7 +153,9 @@ function FeedView({
               <div>
                 <h3>{article.title}</h3>
                 <p>{article.publicationName ?? 'Unknown publication'}</p>
-                <span>{article.rankingReason}</span>
+                <span>
+                  {article.source} · {article.fullTextStatus} · {article.rankingReason}
+                </span>
               </div>
               {article.needsFullText && <b>needs import</b>}
             </button>
@@ -166,6 +178,15 @@ function FeedView({
               <Metric label="Research" value={selectedArticle.article.qualityScore} />
               <Metric label="Relevance" value={selectedArticle.article.relevanceScore} />
             </div>
+            <div className="metaLine">
+              <span>Source: {selectedArticle.article.source}</span>
+              <span>Access: {selectedArticle.article.accessLevel}</span>
+              <span>Text: {selectedArticle.article.fullTextStatus}</span>
+              {selectedArticle.article.emailSender && <span>Sender: {selectedArticle.article.emailSender}</span>}
+            </div>
+            {selectedArticle.article.detectionEvidence && (
+              <p className="notice subtle">{selectedArticle.article.detectionEvidence}</p>
+            )}
             <h3>Claims</h3>
             {selectedArticle.claims.map((claim) => (
               <div className="claim" key={claim.id}>
@@ -183,6 +204,188 @@ function FeedView({
         )}
       </section>
     </div>
+  );
+}
+
+function InboxView({
+  publications,
+  onChanged,
+  setMessage
+}: {
+  publications: Publication[];
+  onChanged: () => Promise<void>;
+  setMessage: (message: string) => void;
+}) {
+  const [status, setStatus] = useState<GmailStatus | null>(null);
+  const [candidates, setCandidates] = useState<GmailCandidate[]>([]);
+  const [senders, setSenders] = useState<EmailSender[]>([]);
+  const [after, setAfter] = useState('');
+  const [before, setBefore] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  async function refreshInbox() {
+    const [statusData, senderData] = await Promise.all([
+      api<GmailStatus>('/api/gmail/status'),
+      api<EmailSender[]>('/api/email-senders')
+    ]);
+    setStatus(statusData);
+    setSenders(senderData);
+  }
+
+  useEffect(() => {
+    refreshInbox().catch((error: Error) => setMessage(error.message));
+  }, []);
+
+  async function connect() {
+    const result = await api<{ url: string }>('/api/gmail/oauth/url');
+    window.location.href = result.url;
+  }
+
+  async function search() {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (after) params.set('after', after);
+      if (before) params.set('before', before);
+      const result = await api<GmailCandidate[]>(`/api/gmail/candidates?${params.toString()}`);
+      setCandidates(result);
+      await refreshInbox();
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function trust(email: string, trustStatus: EmailSender['trustStatus'], publicationId?: string) {
+    await api(`/api/email-senders/${encodeURIComponent(email)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        trustStatus,
+        publicationId: publicationId ? Number(publicationId) : undefined
+      })
+    });
+    await refreshInbox();
+    setCandidates((items) =>
+      items.map((item) => (item.senderEmail === email ? { ...item, trustStatus, reason: `Sender marked ${trustStatus}` } : item))
+    );
+  }
+
+  async function importMessage(messageId: string) {
+    await api(`/api/gmail/import/${messageId}`, { method: 'POST' });
+    await onChanged();
+    setCandidates((items) =>
+      items.map((item) => (item.messageId === messageId ? { ...item, importStatus: 'already_imported' } : item))
+    );
+  }
+
+  return (
+    <section>
+      <header className="sectionHeader">
+        <div>
+          <h2>Subscription Inbox</h2>
+          <p>Use Gmail as ground truth for subscribed Substack articles. Spam and Trash are always excluded.</p>
+        </div>
+        {status?.connected ? <button onClick={search}>{loading ? 'Searching...' : 'Find Emails'}</button> : <button onClick={connect}>Connect Gmail</button>}
+      </header>
+      <div className="statusGrid">
+        <Metric label="Configured" value={status?.configured ? 1 : 0} />
+        <Metric label="Connected" value={status?.connected ? 1 : 0} />
+        <Metric label="Spam/Trash Excluded" value={status?.excludesSpamTrash ? 1 : 0} />
+      </div>
+      {!status?.configured && (
+        <p className="notice">Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to .env, then restart the server.</p>
+      )}
+      <div className="formLine inboxFilters">
+        <input type="date" value={after} onChange={(event) => setAfter(event.target.value)} aria-label="After date" />
+        <input type="date" value={before} onChange={(event) => setBefore(event.target.value)} aria-label="Before date" />
+        <button onClick={search} disabled={!status?.connected || loading}>
+          Search Gmail
+        </button>
+      </div>
+      <h3>Candidate Emails</h3>
+      <div className="table">
+        {candidates.map((candidate) => (
+          <div className="tableRow inboxRow" key={candidate.messageId}>
+            <div>
+              <strong>{candidate.subject}</strong>
+              <span>
+                {candidate.senderName ?? candidate.senderEmail} · {candidate.senderEmail}
+              </span>
+              <small>
+                {candidate.reason} · {candidate.labels.join(', ') || 'no labels'} · {candidate.receivedAt ?? 'unknown date'}
+              </small>
+              {candidate.articleUrl && <small>{candidate.articleUrl}</small>}
+            </div>
+            <select
+              defaultValue=""
+              onChange={(event) => trust(candidate.senderEmail, 'trusted', event.target.value || undefined)}
+              aria-label="Trust sender and map publication"
+            >
+              <option value="">Trust sender...</option>
+              {publications.map((publication) => (
+                <option value={publication.id} key={publication.id}>
+                  {publication.name}
+                </option>
+              ))}
+            </select>
+            <button onClick={() => trust(candidate.senderEmail, 'ignored')}>Ignore</button>
+            <button disabled={candidate.importStatus === 'already_imported'} onClick={() => importMessage(candidate.messageId)}>
+              {candidate.importStatus === 'already_imported' ? 'Imported' : 'Import'}
+            </button>
+          </div>
+        ))}
+        {!candidates.length && <p className="empty">Connect Gmail and search for Substack candidates.</p>}
+      </div>
+      <h3>Known Senders</h3>
+      <div className="table">
+        {senders.map((sender) => (
+          <div className="tableRow senderRow" key={sender.email}>
+            <div>
+              <strong>{sender.email}</strong>
+              <span>{sender.name ?? 'Unknown sender'}</span>
+              <small>
+                {sender.trustStatus} · last imported {sender.lastImportedAt ?? 'never'}
+              </small>
+            </div>
+            <button onClick={() => trust(sender.email, 'trusted')}>Trust</button>
+            <button onClick={() => trust(sender.email, 'ignored')}>Ignore</button>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function CoverageView() {
+  const [items, setItems] = useState<CoverageItem[]>([]);
+
+  useEffect(() => {
+    api<CoverageItem[]>('/api/coverage').then(setItems).catch(() => setItems([]));
+  }, []);
+
+  return (
+    <section>
+      <header className="sectionHeader">
+        <div>
+          <h2>Coverage</h2>
+          <p>Audit trusted Gmail senders against imported articles and RSS/archive gap signals.</p>
+        </div>
+      </header>
+      <div className="table">
+        {items.map((item) => (
+          <div className="tableRow coverageRow" key={item.sender.email}>
+            <div>
+              <strong>{item.publicationName ?? item.sender.name ?? item.sender.email}</strong>
+              <span>{item.sender.email}</span>
+              <small>{item.note}</small>
+            </div>
+            <span className={`pill ${item.status}`}>{item.status}</span>
+            <span>{item.newestEmailArticleAt ?? 'no Gmail articles'}</span>
+            <span>{item.newestRssOrArchiveAt ?? 'no RSS/archive gap'}</span>
+          </div>
+        ))}
+        {!items.length && <p className="empty">Trust Gmail senders to start coverage auditing.</p>}
+      </div>
+    </section>
   );
 }
 

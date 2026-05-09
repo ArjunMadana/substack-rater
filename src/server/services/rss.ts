@@ -1,7 +1,7 @@
 import { XMLParser } from 'fast-xml-parser';
 import type { ArticleSource } from '../../shared/types.js';
 import { canonicalizeArticleUrl } from './url.js';
-import { detectPremiumPreview, stripHtml, summarizeText } from './text.js';
+import { detectPartialArticleHtml, stripHtml, summarizeText } from './text.js';
 
 export interface ParsedFeedItem {
   title: string;
@@ -67,7 +67,8 @@ export function parseRss(xml: string): ParsedFeedItem[] {
     const rawContent =
       textValue(item['content:encoded']) ?? textValue(item.description) ?? textValue(item.summary) ?? '';
     const contentText = stripHtml(rawContent);
-    const isPremiumPreview = detectPremiumPreview(contentText);
+    const partial = detectPartialArticleHtml({ html: rawContent, articleUrl: rawUrl });
+    const isPremiumPreview = partial.isPartial;
 
     return [
       {

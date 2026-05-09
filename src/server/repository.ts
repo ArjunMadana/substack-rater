@@ -1,6 +1,6 @@
 import { getDb } from './db.js';
-import { mapArticle, mapClaim, mapFeedItem, mapPublication } from './rows.js';
-import type { Article, Claim, Publication } from '../shared/types.js';
+import { mapArticle, mapClaim, mapCoverageItem, mapEmailSender, mapFeedItem, mapPublication } from './rows.js';
+import type { Article, Claim, EmailSender, Publication, SenderTrustStatus } from '../shared/types.js';
 import { scoreArticle } from './services/scoring.js';
 
 interface ArticleInsert {
@@ -15,6 +15,12 @@ interface ArticleInsert {
   source: string;
   isPremiumPreview: boolean;
   needsFullText: boolean;
+  accessLevel?: string;
+  fullTextStatus?: string;
+  detectionEvidence?: string | null;
+  gmailMessageId?: string | null;
+  emailSender?: string | null;
+  emailLabels?: string | null;
 }
 
 export function listPublications() {
@@ -75,7 +81,9 @@ export function upsertArticle(input: ArticleInsert) {
     isPremiumPreview: input.isPremiumPreview
   });
 
-  const existing = getDb().prepare('SELECT id FROM articles WHERE url = ?').get(input.url) as
+  const existing = getDb()
+    .prepare('SELECT id FROM articles WHERE url = ? OR (gmail_message_id IS NOT NULL AND gmail_message_id = ?)')
+    .get(input.url, input.gmailMessageId ?? null) as
     | { id: number }
     | undefined;
 
@@ -93,9 +101,19 @@ export function upsertArticle(input: ArticleInsert) {
                WHEN LENGTH(COALESCE(?, '')) > LENGTH(COALESCE(content_text, '')) THEN ?
                ELSE content_text
              END,
-             source = CASE WHEN source = 'rss' AND ? != 'rss' THEN ? ELSE source END,
+             source = CASE
+               WHEN ? = 'email_subscription' THEN ?
+               WHEN source = 'rss' AND ? != 'rss' THEN ?
+               ELSE source
+             END,
              is_premium_preview = ?,
              needs_full_text = ?,
+             access_level = ?,
+             full_text_status = ?,
+             detection_evidence = COALESCE(?, detection_evidence),
+             gmail_message_id = COALESCE(?, gmail_message_id),
+             email_sender = COALESCE(?, email_sender),
+             email_labels = COALESCE(?, email_labels),
              quality_score = ?,
              relevance_score = ?,
              importance_score = ?,
@@ -114,8 +132,16 @@ export function upsertArticle(input: ArticleInsert) {
         input.contentText,
         input.source,
         input.source,
+        input.source,
+        input.source,
         input.isPremiumPreview ? 1 : 0,
         input.needsFullText ? 1 : 0,
+        input.accessLevel ?? (input.isPremiumPreview ? 'premium_preview' : 'unknown'),
+        input.fullTextStatus ?? (input.needsFullText ? 'needs_email_import' : 'complete'),
+        input.detectionEvidence ?? null,
+        input.gmailMessageId ?? null,
+        input.emailSender ?? null,
+        input.emailLabels ?? null,
         scores.qualityScore,
         scores.relevanceScore,
         scores.importanceScore,
@@ -129,9 +155,10 @@ export function upsertArticle(input: ArticleInsert) {
     .prepare(
       `INSERT INTO articles (
         publication_id, title, url, guid, author, published_at, summary, content_text,
-        source, is_premium_preview, needs_full_text, quality_score, relevance_score,
-        importance_score, ranking_reason
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        source, is_premium_preview, needs_full_text, access_level, full_text_status,
+        detection_evidence, gmail_message_id, email_sender, email_labels, quality_score,
+        relevance_score, importance_score, ranking_reason
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       input.publicationId,
@@ -145,12 +172,30 @@ export function upsertArticle(input: ArticleInsert) {
       input.source,
       input.isPremiumPreview ? 1 : 0,
       input.needsFullText ? 1 : 0,
+      input.accessLevel ?? (input.isPremiumPreview ? 'premium_preview' : 'unknown'),
+      input.fullTextStatus ?? (input.needsFullText ? 'needs_email_import' : 'complete'),
+      input.detectionEvidence ?? null,
+      input.gmailMessageId ?? null,
+      input.emailSender ?? null,
+      input.emailLabels ?? null,
       scores.qualityScore,
       scores.relevanceScore,
       scores.importanceScore,
       scores.rankingReason
     );
   return getArticle(Number(result.lastInsertRowid)) as Article;
+}
+
+export function getArticleByGmailMessageId(messageId: string) {
+  const row = getDb()
+    .prepare(
+      `SELECT a.*, p.name AS publication_name
+       FROM articles a
+       LEFT JOIN publications p ON p.id = a.publication_id
+       WHERE a.gmail_message_id = ?`
+    )
+    .get(messageId) as Record<string, unknown> | undefined;
+  return row ? mapArticle(row) : null;
 }
 
 export function getArticle(id: number) {
@@ -243,4 +288,109 @@ export function updateClaimStatus(id: number, status: string, outcomeNotes: stri
     .run(status, outcomeNotes, id);
   const row = getDb().prepare('SELECT * FROM claims WHERE id = ?').get(id) as Record<string, unknown>;
   return mapClaim(row);
+}
+
+export function upsertEmailSender(input: {
+  email: string;
+  name?: string | null;
+  publicationId?: number | null;
+  trustStatus?: SenderTrustStatus;
+}) {
+  const normalizedEmail = input.email.toLowerCase();
+  const existing = getDb().prepare('SELECT * FROM email_senders WHERE email = ?').get(normalizedEmail) as
+    | Record<string, unknown>
+    | undefined;
+
+  if (existing) {
+    getDb()
+      .prepare(
+        `UPDATE email_senders
+         SET name = COALESCE(?, name),
+             publication_id = COALESCE(?, publication_id),
+             trust_status = COALESCE(?, trust_status),
+             last_seen_at = CURRENT_TIMESTAMP,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE email = ?`
+      )
+      .run(input.name ?? null, input.publicationId ?? null, input.trustStatus ?? null, normalizedEmail);
+  } else {
+    getDb()
+      .prepare(
+        `INSERT INTO email_senders (email, name, publication_id, trust_status, last_seen_at)
+         VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`
+      )
+      .run(normalizedEmail, input.name ?? null, input.publicationId ?? null, input.trustStatus ?? 'pending');
+  }
+
+  return getEmailSender(normalizedEmail) as EmailSender;
+}
+
+export function getEmailSender(email: string) {
+  const row = getDb()
+    .prepare('SELECT * FROM email_senders WHERE email = ?')
+    .get(email.toLowerCase()) as Record<string, unknown> | undefined;
+  return row ? mapEmailSender(row) : null;
+}
+
+export function listEmailSenders() {
+  const rows = getDb()
+    .prepare('SELECT * FROM email_senders ORDER BY trust_status ASC, email ASC')
+    .all() as Record<string, unknown>[];
+  return rows.map(mapEmailSender);
+}
+
+export function updateEmailSenderTrust(email: string, trustStatus: SenderTrustStatus, publicationId?: number | null) {
+  getDb()
+    .prepare(
+      `UPDATE email_senders
+       SET trust_status = ?, publication_id = COALESCE(?, publication_id), updated_at = CURRENT_TIMESTAMP
+       WHERE email = ?`
+    )
+    .run(trustStatus, publicationId ?? null, email.toLowerCase());
+  return getEmailSender(email) as EmailSender;
+}
+
+export function markEmailSenderImported(email: string, importedAt: string | null) {
+  getDb()
+    .prepare(
+      `UPDATE email_senders
+       SET last_imported_at = COALESCE(?, CURRENT_TIMESTAMP),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE email = ?`
+    )
+    .run(importedAt, email.toLowerCase());
+}
+
+export function listCoverageItems(staleDays = 21) {
+  const rows = getDb()
+    .prepare(
+      `SELECT
+        s.*,
+        p.name AS publication_name,
+        COUNT(a.id) AS article_count,
+        MAX(CASE WHEN a.source = 'email_subscription' THEN COALESCE(a.published_at, a.created_at) END) AS newest_email_article_at,
+        MAX(CASE WHEN a.source IN ('rss', 'archive') THEN COALESCE(a.published_at, a.created_at) END) AS newest_rss_or_archive_at,
+        CASE
+          WHEN COUNT(CASE WHEN a.source = 'email_subscription' THEN 1 END) = 0 THEN 'no_email_articles'
+          WHEN MAX(CASE WHEN a.source IN ('rss', 'archive') THEN COALESCE(a.published_at, a.created_at) END) >
+               MAX(CASE WHEN a.source = 'email_subscription' THEN COALESCE(a.published_at, a.created_at) END) THEN 'rss_gap'
+          WHEN julianday('now') - julianday(MAX(CASE WHEN a.source = 'email_subscription' THEN COALESCE(a.published_at, a.created_at) END)) > ? THEN 'stale'
+          ELSE 'ok'
+        END AS coverage_status,
+        CASE
+          WHEN COUNT(CASE WHEN a.source = 'email_subscription' THEN 1 END) = 0 THEN 'No Gmail articles imported for this trusted sender yet.'
+          WHEN MAX(CASE WHEN a.source IN ('rss', 'archive') THEN COALESCE(a.published_at, a.created_at) END) >
+               MAX(CASE WHEN a.source = 'email_subscription' THEN COALESCE(a.published_at, a.created_at) END) THEN 'RSS/archive has a newer article than Gmail.'
+          WHEN julianday('now') - julianday(MAX(CASE WHEN a.source = 'email_subscription' THEN COALESCE(a.published_at, a.created_at) END)) > ? THEN 'No recent Gmail article imports for this sender.'
+          ELSE 'Gmail coverage looks current.'
+        END AS coverage_note
+       FROM email_senders s
+       LEFT JOIN publications p ON p.id = s.publication_id
+       LEFT JOIN articles a ON LOWER(a.email_sender) = s.email
+       WHERE s.trust_status = 'trusted'
+       GROUP BY s.id
+       ORDER BY coverage_status DESC, s.email ASC`
+    )
+    .all(staleDays, staleDays) as Record<string, unknown>[];
+  return rows.map(mapCoverageItem);
 }

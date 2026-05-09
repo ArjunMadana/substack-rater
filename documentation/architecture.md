@@ -11,14 +11,14 @@ Substack Research Rater is a local-first TypeScript web app.
 
 ## Main Flows
 
-1. Add a Substack publication URL.
-2. Normalize it to a creator-level RSS feed.
-3. Sync RSS for current posts.
-4. Backfill public archive pages for older posts missing from RSS.
-5. Import premium email text when RSS/web content is partial.
+1. Connect Gmail with read-only OAuth.
+2. Search Gmail for subscribed Substack article emails across normal mailbox categories, including Promotions.
+3. Review and trust publication sender addresses.
+4. Import selected Gmail messages as subscription-ground-truth articles.
+5. Use RSS and archive backfill as secondary historical/gap-detection sources.
 6. Extract claims into a reviewable ledger.
 7. Rank articles by investment relevance, research quality, and available publication accuracy.
 
 ## Security Boundary
 
-V1 does not store Substack credentials, passwords, or browser session cookies. Premium content is imported through user-provided email/article text.
+V1 does not store Substack credentials, passwords, or browser session cookies. Gmail OAuth uses `gmail.readonly`; local OAuth tokens are stored under `data/`, which is ignored by git.

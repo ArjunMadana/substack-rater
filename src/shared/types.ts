@@ -5,7 +5,10 @@ export type ClaimStatus =
   | 'mixed'
   | 'expired_unresolved';
 
-export type ArticleSource = 'rss' | 'archive' | 'email' | 'manual';
+export type ArticleSource = 'rss' | 'archive' | 'email' | 'email_subscription' | 'manual';
+export type SenderTrustStatus = 'trusted' | 'ignored' | 'pending';
+export type AccessLevel = 'public_full' | 'premium_preview' | 'premium_full' | 'unknown';
+export type FullTextStatus = 'complete' | 'partial' | 'needs_email_import' | 'parse_failed';
 
 export interface Publication {
   id: number;
@@ -34,6 +37,12 @@ export interface Article {
   source: ArticleSource;
   isPremiumPreview: boolean;
   needsFullText: boolean;
+  accessLevel: AccessLevel;
+  fullTextStatus: FullTextStatus;
+  detectionEvidence: string | null;
+  gmailMessageId: string | null;
+  emailSender: string | null;
+  emailLabels: string | null;
   qualityScore: number;
   relevanceScore: number;
   importanceScore: number;
@@ -63,6 +72,43 @@ export interface Claim {
 export interface FeedItem extends Article {
   claimCount: number;
   publicationAccuracy: number | null;
+}
+
+export interface EmailSender {
+  id: number;
+  email: string;
+  name: string | null;
+  publicationId: number | null;
+  trustStatus: SenderTrustStatus;
+  lastImportedAt: string | null;
+  lastSeenAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GmailCandidate {
+  messageId: string;
+  threadId: string | null;
+  senderEmail: string;
+  senderName: string | null;
+  subject: string;
+  receivedAt: string | null;
+  labels: string[];
+  articleUrl: string | null;
+  publicationName: string | null;
+  trustStatus: SenderTrustStatus;
+  importStatus: 'candidate' | 'ignored' | 'already_imported';
+  reason: string;
+}
+
+export interface CoverageItem {
+  sender: EmailSender;
+  publicationName: string | null;
+  articleCount: number;
+  newestEmailArticleAt: string | null;
+  newestRssOrArchiveAt: string | null;
+  status: 'ok' | 'stale' | 'rss_gap' | 'no_email_articles';
+  note: string;
 }
 
 export interface PublicationInput {

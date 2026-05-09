@@ -12,6 +12,19 @@ Important fields:
 - `last_sync_at`
 - `last_sync_status`
 
+## email_senders
+
+Tracks Gmail sender addresses used as subscription ground truth.
+
+Important fields:
+
+- `email`
+- `name`
+- `publication_id`
+- `trust_status`
+- `last_imported_at`
+- `last_seen_at`
+
 ## articles
 
 Stores RSS, archive, email, and manual article records.
@@ -27,6 +40,12 @@ Important fields:
 - `source`
 - `is_premium_preview`
 - `needs_full_text`
+- `access_level`
+- `full_text_status`
+- `detection_evidence`
+- `gmail_message_id`
+- `email_sender`
+- `email_labels`
 - `quality_score`
 - `relevance_score`
 - `importance_score`

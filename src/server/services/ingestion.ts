@@ -9,7 +9,7 @@ import {
 } from '../repository.js';
 import { archiveUrlForPublication, canonicalizeArticleUrl, normalizePublicationUrl } from './url.js';
 import { parseRss } from './rss.js';
-import { detectPremiumPreview, stripHtml, summarizeText } from './text.js';
+import { detectPartialArticleHtml, stripHtml, summarizeText } from './text.js';
 import { discoverArchiveLinks, extractArticleText } from './archive.js';
 import { getAiProvider } from './ai.js';
 
@@ -68,7 +68,8 @@ export async function backfillPublicationArchive(publicationId: number, limit = 
       const html = await fetchText(url);
       const text = extractArticleText(html);
       const title = stripHtml(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? url);
-      const isPremiumPreview = detectPremiumPreview(text);
+      const partial = detectPartialArticleHtml({ html, articleUrl: url });
+      const isPremiumPreview = partial.isPartial;
       articles.push(
         upsertArticle({
           publicationId: publication.id,
@@ -81,7 +82,10 @@ export async function backfillPublicationArchive(publicationId: number, limit = 
           contentText: text,
           source: 'archive',
           isPremiumPreview,
-          needsFullText: isPremiumPreview
+          needsFullText: isPremiumPreview,
+          accessLevel: isPremiumPreview ? 'premium_preview' : 'public_full',
+          fullTextStatus: isPremiumPreview ? 'needs_email_import' : 'complete',
+          detectionEvidence: partial.evidence
         })
       );
     } catch {
@@ -115,7 +119,10 @@ export async function importEmail(input: { rawEmail?: string; pastedText?: strin
     contentText: text,
     source: 'email',
     isPremiumPreview: false,
-    needsFullText: false
+    needsFullText: false,
+    accessLevel: 'unknown',
+    fullTextStatus: text.length > 500 ? 'complete' : 'parse_failed',
+    detectionEvidence: 'Manual email/text import.'
   });
 }
 

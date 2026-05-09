@@ -143,6 +143,12 @@ nav button.active {
   background: #fff4ee;
 }
 
+.notice.subtle {
+  border-left-color: #7b928e;
+  background: #eef4f1;
+  color: #2e3a3d;
+}
+
 .twoPane {
   display: grid;
   grid-template-columns: minmax(360px, 0.9fr) minmax(420px, 1.1fr);
@@ -213,6 +219,32 @@ nav button.active {
   margin-bottom: 18px;
 }
 
+.statusGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(120px, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.metaLine {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.metaLine span,
+.pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #edf2ec;
+  color: #2e3a3d;
+  font-size: 12px;
+}
+
 .metric {
   background: #edf2ec;
 }
@@ -270,6 +302,32 @@ textarea {
   grid-template-columns: 1fr auto auto;
   gap: 10px;
   align-items: center;
+}
+
+.inboxRow {
+  grid-template-columns: minmax(260px, 1fr) 220px auto auto;
+}
+
+.senderRow {
+  grid-template-columns: 1fr auto auto;
+}
+
+.coverageRow {
+  grid-template-columns: minmax(260px, 1fr) auto minmax(150px, auto) minmax(150px, auto);
+}
+
+.inboxFilters {
+  grid-template-columns: 180px 180px auto;
+}
+
+.pill.ok {
+  background: #d7f5d1;
+}
+
+.pill.stale,
+.pill.rss_gap,
+.pill.no_email_articles {
+  background: #fff0c6;
 }
 
 .tableRow div {
